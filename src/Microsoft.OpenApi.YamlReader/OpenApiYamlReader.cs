@@ -1,15 +1,17 @@
 ﻿// Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT license.
 
+using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Text.Json.Nodes;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.OpenApi.Reader;
-using SharpYaml.Serialization;
+using SharpYaml;
+using SharpYaml.Events;
 using System;
-using System.Linq;
 using System.Text;
 
 namespace Microsoft.OpenApi.YamlReader
@@ -123,20 +125,125 @@ namespace Microsoft.OpenApi.YamlReader
         }
 
         /// <summary>
-        /// Helper method to turn streams into a sequence of JsonNodes
+        /// Helper method to turn streams into a sequence of JsonNodes.
+        /// Uses SharpYaml's event-based parser to build JsonNode directly,
+        /// avoiding the intermediate YamlNode DOM allocation.
         /// </summary>
         /// <param name="input">Stream containing YAML formatted text</param>
-        /// <returns>Instance of a YamlDocument</returns>
+        /// <returns>A JsonNode representing the first YAML document</returns>
         static JsonNode LoadJsonNodesFromYamlDocument(TextReader input)
         {
-            var yamlStream = new YamlStream();
-            yamlStream.Load(input);
-            if (yamlStream.Documents.Any() && yamlStream.Documents[0].ToJsonNode() is { } jsonNode)
+            var parser = Parser.CreateParser(input);
+
+            // Skip StreamStart
+            if (!parser.MoveNext() || parser.Current is not StreamStart)
+                throw new InvalidOperationException("Expected YAML stream start.");
+
+            // Skip DocumentStart
+            if (!parser.MoveNext() || parser.Current is not DocumentStart)
+                throw new InvalidOperationException("Expected YAML document start.");
+
+            // Parse the root node
+            if (!parser.MoveNext())
+                throw new InvalidOperationException("No documents found in the YAML stream.");
+
+            return ConvertYamlEventToJsonNode(parser)
+                   ?? throw new InvalidOperationException("No documents found in the YAML stream.");
+        }
+
+        private static readonly HashSet<string> YamlNullRepresentations = new(StringComparer.Ordinal)
+        {
+            "~",
+            "null",
+            "Null",
+            "NULL"
+        };
+
+        /// <summary>
+        /// Reads the current parser event and any child events, building a JsonNode.
+        /// After returning, parser.Current is the last consumed event.
+        /// </summary>
+        private static JsonNode? ConvertYamlEventToJsonNode(IParser parser)
+        {
+            switch (parser.Current)
             {
-                return jsonNode;
+                case Scalar scalar:
+                    return ConvertScalarToJsonValue(scalar);
+
+                case MappingStart:
+                    return ConvertMappingToJsonObject(parser);
+
+                case SequenceStart:
+                    return ConvertSequenceToJsonArray(parser);
+
+                default:
+                    throw new InvalidOperationException(
+                        $"Unexpected YAML event: {parser.Current?.GetType().Name}");
+            }
+        }
+
+        private static JsonValue ConvertScalarToJsonValue(Scalar scalar)
+        {
+            var value = scalar.Value;
+
+            if (scalar.Style == ScalarStyle.Plain)
+            {
+                // Check for null representations
+                if (value is null || YamlNullRepresentations.Contains(value))
+                    return (JsonValue)JsonNullSentinel.JsonNull.DeepClone();
+
+                // Try numeric
+                if (decimal.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var d))
+                    return JsonValue.Create(d);
+
+                // Try boolean
+                if (bool.TryParse(value, out var b))
+                    return JsonValue.Create(b);
             }
 
-            throw new InvalidOperationException("No documents found in the YAML stream.");
+            return JsonValue.Create(value);
+        }
+
+        private static JsonObject ConvertMappingToJsonObject(IParser parser)
+        {
+            // parser.Current is MappingStart
+            var obj = new JsonObject();
+
+            while (parser.MoveNext())
+            {
+                if (parser.Current is MappingEnd)
+                    break;
+
+                // Key must be a scalar
+                if (parser.Current is not Scalar keyScalar)
+                    throw new InvalidOperationException("Expected scalar key in YAML mapping.");
+
+                var key = keyScalar.Value!;
+
+                // Advance to the value event
+                if (!parser.MoveNext())
+                    throw new InvalidOperationException("Unexpected end of YAML stream while reading mapping value.");
+
+                obj[key] = ConvertYamlEventToJsonNode(parser);
+            }
+
+            return obj;
+        }
+
+        private static JsonArray ConvertSequenceToJsonArray(IParser parser)
+        {
+            // parser.Current is SequenceStart
+            var arr = new JsonArray();
+
+            while (parser.MoveNext())
+            {
+                if (parser.Current is SequenceEnd)
+                    break;
+
+                arr.Add(ConvertYamlEventToJsonNode(parser));
+            }
+
+            return arr;
         }
     }
 }

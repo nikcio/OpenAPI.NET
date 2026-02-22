@@ -174,7 +174,25 @@ namespace Microsoft.OpenApi.Reader
         /// </summary>
         public string GetLocation()
         {
-            return "#/" + string.Join("/", _currentLocation.Reverse().Select(s => s.Replace("~", "~0").Replace("/", "~1")).ToArray());
+            if (_currentLocation.Count == 0)
+                return "#/";
+
+            // Build JSON pointer without LINQ allocations
+            var sb = new System.Text.StringBuilder("#/");
+            var segments = _currentLocation.ToArray();
+            for (int i = segments.Length - 1; i >= 0; i--)
+            {
+                var segment = segments[i];
+                // Escape ~ and / per RFC 6901
+                if (segment.Contains("~") || segment.Contains("/"))
+                {
+                    segment = segment.Replace("~", "~0").Replace("/", "~1");
+                }
+                sb.Append(segment);
+                if (i > 0)
+                    sb.Append('/');
+            }
+            return sb.ToString();
         }
 
         /// <summary>

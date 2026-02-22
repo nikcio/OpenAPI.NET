@@ -10,16 +10,21 @@ namespace Microsoft.OpenApi.Reader
 {
     internal class PropertyNode : ParseNode
     {
+        private ParseNode? _value;
+
         public PropertyNode(ParsingContext context, string name, JsonNode node) : base(
             context, node)
         {
             Name = name;
-            Value = Create(context, node);
         }
 
         public string Name { get; set; }
 
-        public ParseNode Value { get; set; }
+        public ParseNode Value
+        {
+            get => _value ??= Create(Context, JsonNode);
+            set => _value = value;
+        }
 
         public void ParseField<T>(
             T parentInstance,
@@ -50,7 +55,15 @@ namespace Microsoft.OpenApi.Reader
             }
             else
             {
-                var map = patternFields.Where(p => p.Key(Name)).Select(p => p.Value).FirstOrDefault();
+                Action<T, string, ParseNode, OpenApiDocument>? map = null;
+                foreach (var patternField in patternFields)
+                {
+                    if (patternField.Key(Name))
+                    {
+                        map = patternField.Value;
+                        break;
+                    }
+                }
                 if (map != null)
                 {
                     try

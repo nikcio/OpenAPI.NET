@@ -166,14 +166,23 @@ namespace Microsoft.OpenApi.Reader.V31
              * or its a normal json pointer fragment syntax
              * E.g. $ref: '#/components/schemas/pet'
              */
-            var refSegments = pointer.Split('/');
-            string refId = !pointer.Contains('#') ? pointer : refSegments[refSegments.Count()-1];
+            var hashIndex = pointer.IndexOf('#');
 
-            var isExternalResource = !refSegments[0].StartsWith("#", StringComparison.OrdinalIgnoreCase);
-            string? externalResource = null;
-            if (isExternalResource && pointer.Contains('#'))
+            if (hashIndex < 0)
             {
-                externalResource = pointer.Split('#')[0].TrimEnd('#');
+                // URL reference, no fragment — the whole pointer is the ID
+                return (pointer, null);
+            }
+
+            // Has a # — extract the last segment after the last '/'
+            var lastSlash = pointer.LastIndexOf('/');
+            string refId = lastSlash >= 0 ? pointer.Substring(lastSlash + 1) : pointer;
+
+            string? externalResource = null;
+            if (hashIndex > 0)
+            {
+                // External resource with fragment
+                externalResource = pointer.Substring(0, hashIndex);
             }
 
             return (refId, externalResource);

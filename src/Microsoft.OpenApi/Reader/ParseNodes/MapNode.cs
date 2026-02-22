@@ -19,12 +19,6 @@ namespace Microsoft.OpenApi.Reader
     {
         private readonly JsonObject _node;
 
-        private PropertyNode GetPropertyNodeFromJsonNode(string key, JsonNode? node)
-		{
-            return new PropertyNode(Context, key, node ?? JsonNullSentinel.JsonNull);
-		}
-
-        private readonly List<PropertyNode> _nodes;
         public MapNode(ParsingContext context, JsonNode node) : base(
             context, node)
         {
@@ -34,68 +28,60 @@ namespace Microsoft.OpenApi.Reader
             }
 
             _node = mapNode;
-            _nodes = _node.Select(p => GetPropertyNodeFromJsonNode(p.Key, p.Value)).ToList();
         }
 
         public override Dictionary<string, T> CreateMap<T>(Func<MapNode, OpenApiDocument, T> map, OpenApiDocument hostDocument)
         {
             var jsonMap = _node ?? throw new OpenApiReaderException($"Expected map while parsing {typeof(T).Name}", Context);
-            var nodes = jsonMap.Select(
-                n =>
+            var result = new Dictionary<string, T>(jsonMap.Count);
+            foreach (var n in jsonMap)
+            {
+                var key = n.Key;
+                T value;
+                try
                 {
-
-                    var key = n.Key;
-                    T value;
-                    try
-                    {
-                        Context.StartObject(key);
-                        value = n.Value is JsonObject jsonObject
-                          ? map(new MapNode(Context, jsonObject), hostDocument)
-                          : default!;
-                    }
-                    finally
-                    {
-                        Context.EndObject();
-                    }
-                    return new
-                    {
-                        key,
-                        value
-                    };
-                });
-
-            return nodes.ToDictionary(k => k.key, v => v.value);
+                    Context.StartObject(key);
+                    value = n.Value is JsonObject jsonObject
+                      ? map(new MapNode(Context, jsonObject), hostDocument)
+                      : default!;
+                }
+                finally
+                {
+                    Context.EndObject();
+                }
+                result[key] = value;
+            }
+            return result;
         }
 
         public override Dictionary<string, T> CreateSimpleMap<T>(Func<ValueNode, T> map)
         {
             var jsonMap = _node ?? throw new OpenApiReaderException($"Expected map while parsing {typeof(T).Name}", Context);
-            var nodes = jsonMap.Select(
-                n =>
+            var result = new Dictionary<string, T>(jsonMap.Count);
+            foreach (var n in jsonMap)
+            {
+                var key = n.Key;
+                try
                 {
-                    var key = n.Key;
-                    try
-                    {
-                        Context.StartObject(key);
-                        JsonValue valueNode = n.Value is JsonValue value ? value
-                        : throw new OpenApiReaderException($"Expected scalar while parsing {typeof(T).Name}", Context);
+                    Context.StartObject(key);
+                    JsonValue valueNode = n.Value is JsonValue value ? value
+                    : throw new OpenApiReaderException($"Expected scalar while parsing {typeof(T).Name}", Context);
 
-                        return (key, value: map(new ValueNode(Context, valueNode)));
-                    }
-                    finally
-                    {
-                        Context.EndObject();
-                    }
-                });
-
-            return nodes.ToDictionary(k => k.key, v => v.value);
+                    result[key] = map(new ValueNode(Context, valueNode));
+                }
+                finally
+                {
+                    Context.EndObject();
+                }
+            }
+            return result;
         }
 
         public override Dictionary<string, HashSet<T>> CreateArrayMap<T>(Func<ValueNode, OpenApiDocument?, T> map, OpenApiDocument? openApiDocument)
         {
             var jsonMap = _node ?? throw new OpenApiReaderException($"Expected map while parsing {typeof(T).Name}", Context);
-
-            var nodes = jsonMap.Select(n =>
+            var result = new Dictionary<string, HashSet<T>>(jsonMap.Count);
+            foreach (var n in jsonMap)
             {
                 var key = n.Key;
                 try
@@ -105,23 +91,29 @@ namespace Microsoft.OpenApi.Reader
                         ? value
                         : throw new OpenApiReaderException($"Expected array while parsing {typeof(T).Name}", Context);
 
-                    HashSet<T> values = new HashSet<T>(arrayNode.OfType<JsonNode>().Select(item => map(new ValueNode(Context, item), openApiDocument)));
+                    var values = new HashSet<T>();
+                    foreach (var item in arrayNode)
+                    {
+                        if (item is not null)
+                            values.Add(map(new ValueNode(Context, item), openApiDocument));
+                    }
 
-                    return (key, values);
-
+                    result[key] = values;
                 }
                 finally
                 {
                     Context.EndObject();
                 }
-            });
-
-            return nodes.ToDictionary(kvp => kvp.key, kvp => kvp.values);
+            }
+            return result;
         }
 
         public IEnumerator<PropertyNode> GetEnumerator()
         {
-            return _nodes.GetEnumerator();
+            foreach (var kvp in _node)
+            {
+                yield return new PropertyNode(Context, kvp.Key, kvp.Value ?? JsonNullSentinel.JsonNull);
+            }
         }
 
         IEnumerator IEnumerable.GetEnumerator()

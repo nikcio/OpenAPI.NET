@@ -4,7 +4,6 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Linq;
 using System.Text.Json.Nodes;
 
 namespace Microsoft.OpenApi.Reader
@@ -26,21 +25,31 @@ namespace Microsoft.OpenApi.Reader
                 throw new OpenApiReaderException($"Expected list while parsing {typeof(T).Name}");
             }
 
-            var list = _nodeList
-                .OfType<JsonObject>()
-                .Select(n => map(new MapNode(Context, n), hostDocument))
-                .Where(i => i != null)
-                .ToList();
+            var list = new List<T>(_nodeList.Count);
+            foreach (var item in _nodeList)
+            {
+                if (item is JsonObject jsonObject)
+                {
+                    var value = map(new MapNode(Context, jsonObject), hostDocument);
+                    if (value != null)
+                        list.Add(value);
+                }
+            }
             return list;
         }
 
         public override List<JsonNode> CreateListOfAny()
         {
-
-            var list = _nodeList.OfType<JsonNode>().Select(n => Create(Context, n).CreateAny())
-                .Where(i => i != null)
-                .ToList();
-
+            var list = new List<JsonNode>(_nodeList.Count);
+            foreach (var item in _nodeList)
+            {
+                if (item is not null)
+                {
+                    var any = Create(Context, item).CreateAny();
+                    if (any != null)
+                        list.Add(any);
+                }
+            }
             return list;
         }
 
@@ -51,12 +60,22 @@ namespace Microsoft.OpenApi.Reader
                 throw new OpenApiReaderException($"Expected list while parsing {typeof(T).Name}");
             }
 
-            return _nodeList.OfType<JsonNode>().Select(n => map(new(Context, n), openApiDocument)).ToList();
+            var list = new List<T>(_nodeList.Count);
+            foreach (var item in _nodeList)
+            {
+                if (item is not null)
+                    list.Add(map(new ValueNode(Context, item), openApiDocument));
+            }
+            return list;
         }
 
         public IEnumerator<ParseNode> GetEnumerator()
         {
-            return _nodeList.OfType<JsonNode>().Select(n => Create(Context, n)).ToList().GetEnumerator();
+            foreach (var item in _nodeList)
+            {
+                if (item is not null)
+                    yield return Create(Context, item);
+            }
         }
 
         IEnumerator IEnumerable.GetEnumerator()

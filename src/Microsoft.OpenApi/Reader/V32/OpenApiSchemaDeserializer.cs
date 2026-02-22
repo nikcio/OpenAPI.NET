@@ -365,11 +365,11 @@ internal static partial class OpenApiV32Deserializer
         var mapNode = node.CheckMapNode(OpenApiConstants.Schema);
 
         var pointer = mapNode.GetReferencePointer();
-        var identifier = mapNode.GetJsonSchemaIdentifier();
-        var nodeLocation = node.Context.GetLocation();
 
         if (pointer != null)
         {
+            var identifier = mapNode.GetJsonSchemaIdentifier();
+            var nodeLocation = node.Context.GetLocation();
             var reference = GetReferenceIdAndExternalResource(pointer);
             var result = new OpenApiSchemaReference(reference.Item1, hostDocument, reference.Item2);
             result.Reference.SetMetadataFromMapNode(mapNode);
@@ -381,10 +381,8 @@ internal static partial class OpenApiV32Deserializer
 
         foreach (var propertyNode in mapNode)
         {
-            bool isRecognized = _openApiSchemaFixedFields.ContainsKey(propertyNode.Name) ||
-                    _openApiSchemaPatternFields.Any(p => p.Key(propertyNode.Name));
-
-            if (isRecognized)
+            if (_openApiSchemaFixedFields.ContainsKey(propertyNode.Name) ||
+                propertyNode.Name.StartsWith(OpenApiConstants.ExtensionFieldNamePrefix, StringComparison.OrdinalIgnoreCase))
             {
                 propertyNode.ParseField(schema, _openApiSchemaFixedFields, _openApiSchemaPatternFields, hostDocument);
             }
@@ -405,10 +403,13 @@ internal static partial class OpenApiV32Deserializer
             schema.Extensions.Remove(OpenApiConstants.NullableExtension);
         }
 
-        if (!string.IsNullOrEmpty(identifier) && hostDocument.Workspace is not null)
         {
-            // register the schema in our registry using the identifier's URL
-            hostDocument.Workspace.RegisterComponentForDocument(hostDocument, schema, identifier!);
+            var identifier = mapNode.GetJsonSchemaIdentifier();
+            if (!string.IsNullOrEmpty(identifier) && hostDocument.Workspace is not null)
+            {
+                // register the schema in our registry using the identifier's URL
+                hostDocument.Workspace.RegisterComponentForDocument(hostDocument, schema, identifier!);
+            }
         }
 
         return schema;

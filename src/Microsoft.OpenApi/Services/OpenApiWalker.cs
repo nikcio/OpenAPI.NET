@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
+using System.Runtime.CompilerServices;
 using System.Text.Json.Nodes;
 
 namespace Microsoft.OpenApi
@@ -15,8 +16,8 @@ namespace Microsoft.OpenApi
     public class OpenApiWalker
     {
         private readonly OpenApiVisitorBase _visitor;
-        private readonly Stack<IOpenApiSchema> _schemaLoop = new();
-        private readonly Stack<IOpenApiPathItem> _pathItemLoop = new();
+        private readonly HashSet<IOpenApiSchema> _schemaLoop = new(ObjectReferenceEqualityComparer<IOpenApiSchema>.Default);
+        private readonly HashSet<IOpenApiPathItem> _pathItemLoop = new(ObjectReferenceEqualityComparer<IOpenApiPathItem>.Default);
 
         /// <summary>
         /// Initializes the <see cref="OpenApiWalker"/> class.
@@ -480,7 +481,7 @@ namespace Microsoft.OpenApi
             }
             else
             {
-                _pathItemLoop.Push(pathItem);
+                _pathItemLoop.Add(pathItem);
             }
 
             _visitor.Visit(pathItem);
@@ -499,7 +500,7 @@ namespace Microsoft.OpenApi
             {
                 _visitor.Visit(extensiblePathItem);
             }
-            _pathItemLoop.Pop();
+            _pathItemLoop.Remove(pathItem!);
          }
 
         /// <summary>
@@ -915,7 +916,7 @@ namespace Microsoft.OpenApi
             }
             else
             {
-                _schemaLoop.Push(schema);
+                _schemaLoop.Add(schema);
             }
 
             _visitor.Visit(schema);
@@ -967,7 +968,7 @@ namespace Microsoft.OpenApi
 
             Walk(schema as IOpenApiExtensible);
 
-            _schemaLoop.Pop();
+            _schemaLoop.Remove(schema);
         }
 
         internal void Walk(OpenApiDiscriminator? openApiDiscriminator)

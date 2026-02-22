@@ -9,5 +9,6 @@ public class Program
         var config = DefaultConfig.Instance;
         BenchmarkRunner.Run<Descriptions>(config, args);
         BenchmarkRunner.Run<EmptyModels>(config, args);
+        BenchmarkRunner.Run<ParseSpecExamples>(config, args);
     }
 }
